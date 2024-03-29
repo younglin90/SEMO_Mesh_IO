@@ -10,9 +10,11 @@ int main() {
 	semo::mesh_io io;
 
 
-	msh << io.load("./mesh/openfoam");
+	//msh << io.load("./mesh/openfoam");
+	msh << io.load("./mesh/300_polygon_sphere_100mm.STL");
+	unique_vertex(msh);
 
-	msh >> io.save("./mesh/Bunny_copy.vtu");
+	msh >> io.save("./mesh/Bunny_copy.obj");
 
 	std::cout << msh.pos.size() << std::endl;
 	std::cout << msh.f2v.size() << std::endl;

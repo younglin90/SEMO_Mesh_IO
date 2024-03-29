@@ -12,6 +12,7 @@
 #include <fstream>
 #include <tuple>
 #include <optional>
+#include <numeric>
 
 namespace semo {
 
@@ -1034,12 +1035,267 @@ namespace semo {
 
 
 
+
+
+	//===================================================
+	// 요소들이 거의 동등한 값인지 확인하는 함수
+	template <typename Container>
+	bool approximately_equal(const Container& a, const Container& b,
+		const typename Container::value_type& epsilon =
+		2.0 * std::numeric_limits<typename Container::value_type>::epsilon()) {
+		auto it_a = a.begin();
+		auto it_b = b.begin();
+
+		while (it_a != a.end() && it_b != b.end()) {
+			if (std::abs(*it_a - *it_b) > epsilon) {
+				return false;
+			}
+			++it_a;
+			++it_b;
+		}
+
+		return true;
+	}
+
+
+	//===================================================
+	// 주어진 컨테이너의 값을 "정렬"과 "중복 제거"한 후,
+	// 제거된 빈 공간을 모두 앞으로 땡겨서 채운 후, 
+	// 각 원소의 새로운 인덱스(중복이면 중복 요소 중 
+	// 가장 첫번째 요소의 인덱스) 를 반환합니다.
+	template <typename Container, typename Func =
+		std::function<typename Container::value_type& (typename Container::value_type&)>>
+		std::vector<std::size_t> sort_and_unique_indices(
+			Container& values,
+			Func func = [](auto& p) ->
+			auto& {
+				return p;
+			}) {
+		//template <typename Container, typename Func>
+		//std::vector<unsigned> sortAndUniqueIndices(Container & values, Func func) {
+			//std::function<T> func = [](typename Container::value_type& p) { return p; }) {
+
+		std::vector<std::size_t> indices(values.size());
+		std::vector<std::size_t*> indicesPtr(values.size());
+		for (std::size_t i = 0; i < values.size(); ++i) {
+			indices[i] = i;
+			indicesPtr[i] = &indices[i];
+		}
+		//std::iota(std::begin(indices), std::end(indices), 0);
+
+		// 주어진 함수를 이용하여 값을 비교하여 인덱스를 정렬합니다.
+		std::sort(indicesPtr.begin(), indicesPtr.end(),
+			[&values, func](std::size_t* i1, std::size_t* i2) {
+				return std::lexicographical_compare(
+					func(values[*i1]).begin(), func(values[*i1]).end(),
+					func(values[*i2]).begin(), func(values[*i2]).end());
+			});
+
+		// 정렬된 인덱스를 다시 부여합니다.
+		for (std::size_t i = 0; i < values.size(); ++i) {
+			*indicesPtr[i] = static_cast<std::size_t>(i);
+		}
+
+		// 주어진 함수를 이용하여 값을 비교하여 원소를 정렬합니다.
+		std::sort(values.begin(), values.end(), [func](auto& a, auto& b) {
+			return std::lexicographical_compare(
+				func(a).begin(), func(a).end(),
+				func(b).begin(), func(b).end());
+			});
+
+
+		auto approximately_equal_with_epsilon = [](auto a, auto b) {
+			return approximately_equal(a, b, 1.e-12);
+			};
+
+		// 중복된 원소에 대한 새로운 인덱스를 부여합니다.
+		for (std::size_t i = 1, j = 0; i < values.size(); ++i) {
+			if (approximately_equal_with_epsilon(func(values[i - 1]), func(values[i]))) {
+				//indicesPtr[i]->second = true;
+				*indicesPtr[i] = static_cast<std::size_t>(j);
+			}
+			else {
+				*indicesPtr[i] = static_cast<std::size_t>(++j);
+			}
+		}
+
+		// 중복된 원소들을 제거합니다.
+		auto new_end = std::unique(values.begin(), values.end(),
+			[approximately_equal_with_epsilon, func](auto& a, auto& b) {
+				return approximately_equal_with_epsilon(func(a), func(b));
+			});
+
+		values.erase(new_end, values.end());
+
+		return indices;
+
+	}
+
+
+	////===================================================
+	//// 벡터를 플랫하게 만들어주는 함수
+	//template <typename E, typename X>
+	//constexpr void flatten(const std::vector<E>& v, std::vector<X>& out) {
+	//	//std::cout << "unroll vector\n";
+	//	out.insert(out.end(), v.begin(), v.end());
+	//}
+	//// 벡터를 플랫하게 만들어주는 함수
+	//template <typename V, typename X>
+	//constexpr void flatten(const std::vector<std::vector<V>>& v, std::vector<X>& out) {
+	//	//std::cout << "unroll vector of vectors\n";
+	//	for (const auto& e : v) flatten(e, out);
+	//}
+	//// 벡터를 플랫하게 만들어주는 함수
+	//template<typename T>
+	//constexpr auto flatten(const T& input)
+	//{
+	//	using NestedType = semo::types::nested_type_t<T>;
+	//	std::vector<NestedType> flattened;
+	//	flatten(input, flattened);
+	//	return flattened;
+	//}
+
+
+
+	//===================================================
+	// 최대 최소 요소 리턴
+	template<typename Out, typename T, typename Func>
+	std::pair< Out, Out> minmax_elements(T& container, Func func) {
+		auto minmax = std::minmax_element(
+			std::begin(container), std::end(container),
+			[func](auto& elem1, auto& elem2) {
+				return func(elem1) < func(elem2); // Added return statement
+			});
+		return std::make_pair(
+			func(*(minmax.first)),
+			func(*(minmax.second))
+		);
+	}
+
+	template<typename Out, typename T>
+	std::pair< Out, Out> minmax_elements(T& container) {
+		return minmax_elements<Out>(container,
+			[](const auto& elem) { return elem; });
+	}
+
+
+
+
+	//===================================================
+	// myVector 요소들을 indices 로 옮기기
+	template<typename T>
+	void rearrange_elements_to_indices_mutable(std::vector<T>& myVector,
+		std::vector<std::size_t>& indices) {
+		std::size_t size = myVector.size();
+
+		// 각 인덱스에 대해 현재 위치의 요소를 목표 위치로 swap합니다.
+		for (std::size_t i = 0; i < size; ++i) {
+			while (indices[i] != i) {
+				std::swap(myVector[i], myVector[indices[i]]);
+				std::swap(indices[i], indices[indices[i]]);
+			}
+		}
+	}
+
+	// myVector 요소들을 indices 로 옮기기
+	template<typename T>
+	void rearrange_elements_to_indices(std::vector<T>& myVector,
+		std::vector<std::size_t>& indices) {
+		std::vector<std::size_t> copy_indices(indices);
+		rearrange_elements_to_indices_mutable(myVector, copy_indices);
+	}
+
+	// indices 위치에 myVector 요소를 옮기기
+	template<typename T>
+	void rearrange_elements_from_indices(std::vector<T>& myVector,
+		std::vector<std::size_t>& indices) {
+		std::size_t size = myVector.size();
+		std::vector<std::size_t> copy_indices(size);
+		for (std::size_t i = 0; i < size; ++i) {
+			copy_indices[indices[i]] = i;
+		}
+		rearrange_elements_to_indices_mutable(myVector, copy_indices);
+	}
+
+
+
+	//===================================================
+	// 함수형 프로그래밍
+	template <typename F>
+	auto compose(F&& f)
+	{
+		return [a = std::move(f)](auto&&... args) {
+			return a(std::move(args)...);
+			};
+	}
+
+	template <typename F1, typename F2, typename... Fs>
+	auto compose(F1&& f1, F2&& f2, Fs&&... fs)
+	{
+		return compose(
+			[first = std::move(f1), second = std::move(f2)]
+			(auto&&... args) {
+				return second(first(std::move(args)...));
+			},
+			std::move(fs)...
+		);
+	}
+
+
+	template <typename... Funcs>
+	decltype(auto) combine(Funcs... fs) {
+		return [fs...](auto... inps) {
+			(fs(inps...), ...);
+			};
+	}
+
+
+	//===================================================
+	// 있는지 확인
+	template <typename Container, typename Value>
+	bool is_there(Container& inp, Value value) {
+		return std::find(inp.begin(), inp.end(), value) != inp.end();
+	}
+
+	//===================================================
+	// input 으로 인덱스가 모여져 있는 벡터를 넣으면, 인덱스 부분 한꺼번에 효율적으로 제거
+	template<typename T, typename Container2>
+	void erase_elements_by_indices(std::vector<T>& myVector,
+		const Container2& indices) {
+		std::size_t size = myVector.size();
+		std::vector<bool> to_remove(size, false);
+		for (auto i : indices) {
+			to_remove[i] = true;
+		}
+		std::size_t i = 0;
+		myVector.erase(
+			std::remove_if(myVector.begin(), myVector.end(),
+				[&to_remove, i](const auto&) mutable {
+					return to_remove[i++];
+				}),
+			myVector.end());
+	}
+
+
+
+
 	mesh& unique_vertex(mesh& msh) {
 
+		size_t org_size = msh.pos.size();
+		auto indices = sort_and_unique_indices(msh.pos);
+		size_t new_size = msh.pos.size();
+		std::cout << "기존 vertex 사이즈 " << org_size << std::endl;
+		std::cout << "새로운 vertex 사이즈 " << new_size << std::endl;
+		std::cout << "중복된 vertex 사이즈 " << org_size - new_size << std::endl;
 
-
-
-
+		// face to point connectivity를 새로운 인덱스로 바꾸기
+		for (auto& points : msh.f2v) {
+			std::vector<std::size_t> new_points;
+			for (const auto& point : points) {
+				new_points.push_back(indices[point]);
+			}
+			points = std::move(new_points);
+		}
 
 		return msh;
 	}
@@ -1065,8 +1321,6 @@ namespace semo {
 
 		return msh;
 	}
-
-
 
 
 
